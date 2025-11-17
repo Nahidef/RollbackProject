@@ -8,11 +8,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
-	// github.com/joho/godotenv'e burada gerek yok, çünkü Docker Compose değişkenleri direkt sağlar.
 )
 
 // --- Yeni Yapı: ApiHandler ---
-// Bu struct, Master ve Replica bağlantılarını tutar.
 type ApiHandler struct {
 	dbWrite *pgxpool.Pool // YAZMA (Master) Veritabanı bağlantısı
 	dbRead  *pgxpool.Pool // OKUMA (Replica) Veritabanı bağlantısı
@@ -52,22 +50,22 @@ func main() {
 		log.Fatalf("Replica veritabanına bağlanılamadı: %v", err)
 	}
 	defer dbRead.Close()
-    
-    // --- 4. Veritabanı Şemasını Ayarla (SADECE Master'da) ---
+	
+	// --- 4. Veritabanı Şemasını Ayarla (SADECE Master'da) ---
 	initSchema(dbWrite)
 
 
 	// --- 5. Handler'ı iki bağlantıyla birlikte oluştur ---
 	handler := &ApiHandler{
 		dbWrite: dbWrite,
-		dbRead:  dbRead,
+		dbRead: 	dbRead,
 	}
 
 	// --- 6. HTTP Router'ı Ayarla ---
 	router := gin.Default()
 
-	router.POST("/users", handler.addUser)    // YAZMA -> Master'a gider
-	router.GET("/users", handler.listUsers)   // OKUMA -> Replica'ya gider
+	router.POST("/users", handler.addUser) 	 // YAZMA -> Master'a gider
+	router.GET("/users", handler.listUsers) 	// OKUMA -> Replica'ya gider
 	router.GET("/health", handler.healthCheck) // Health check
 
 	log.Println("Sunucu :8080 portunda dinlemede...")
@@ -115,8 +113,17 @@ func (h *ApiHandler) addUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Geçersiz istek. 'name' alanı gerekiyor."})
 		return
 	}
+
+	// ⭐️⭐️⭐️ V2 (GREEN) KASITLI HATA KODU ⭐️⭐️⭐️
+	// Bu kod, Rollback stratejisini test etmek için gereklidir.
+	log.Printf("HATA: V2 Kodu Çalışıyor. POST İşlemi Kasten Reddedildi.")
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "V2: KASITLI SUNUCU HATASI. ROLLBACK GEREKLİ!"})
+	return 
+	// ⭐️⭐️⭐️ HATA KODU SONU ⭐️⭐️⭐️
+    
 	var newUser User
-	err := h.dbWrite.QueryRow(context.Background(), // <-- h.dbWrite kullanıldı
+	// Aşağıdaki orijinal veritabanı kodu, üstteki 'return' yüzünden ASLA çalışmayacaktır.
+	err := h.dbWrite.QueryRow(context.Background(), 
 		"INSERT INTO users (name) VALUES ($1) RETURNING id, name",
 		req.Name).Scan(&newUser.ID, &newUser.Name)
 
@@ -132,7 +139,8 @@ func (h *ApiHandler) addUser(c *gin.Context) {
 // GET /users (OKUMA İşlemi - Replica DB)
 func (h *ApiHandler) listUsers(c *gin.Context) {
 	var users []User
-	rows, err := h.dbRead.Query(context.Background(), "SELECT id, name FROM users ORDER BY id ASC") // <-- h.dbRead kullanıldı
+	// h.dbRead kullanıldı
+	rows, err := h.dbRead.Query(context.Background(), "SELECT id, name FROM users ORDER BY id ASC") 
 	if err != nil {
 		log.Printf("Veritabanı sorgu hatası: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Kullanıcılar listelenemedi"})

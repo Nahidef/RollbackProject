@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-api-blue-deployment
+  labels:
+    app: go-api
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: go-api
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: go-api
+        version: v1
+    spec:
+      containers:
+      - name: go-api-container
+        image: ghcr.io/nahidef/rollbackproject-api:latest
+        ports:
+        - containerPort: 8080
+        env: 
+        - name: PG_URL_WRITE
+          value: "postgresql://user_master:master_password@postgres-master-svc:5432/api_db?sslmode=disable"
+        - name: PG_URL_READ
+          value: "postgresql://user_replica:replica_password@postgres-replica-svc:5432/api_db?sslmode=disable"

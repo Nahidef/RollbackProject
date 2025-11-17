@@ -1,0 +1,113 @@
+# -----------------------
+# Postgres Master
+# -----------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-master
+  labels:
+    app: postgres
+    role: master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+      role: master
+  template:
+    metadata:
+      labels:
+        app: postgres
+        role: master
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "user_master"
+        - name: POSTGRES_PASSWORD
+          value: "master_password"
+        - name: POSTGRES_DB
+          value: "api_db"
+        volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: pgdata
+        emptyDir: {}
+---
+# -----------------------
+# Postgres Replica (opsiyonel)
+# -----------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-replica
+  labels:
+    app: postgres
+    role: replica
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+      role: replica
+  template:
+    metadata:
+      labels:
+        app: postgres
+        role: replica
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "user_replica"
+        - name: POSTGRES_PASSWORD
+          value: "replica_password"
+        - name: POSTGRES_DB
+          value: "api_db"
+        volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: pgdata
+        emptyDir: {}
+---
+# -----------------------
+# Master Service
+# -----------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-master-svc
+spec:
+  selector:
+    app: postgres
+    role: master
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432
+---
+# -----------------------
+# Replica Service
+# -----------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-replica-svc
+spec:
+  selector:
+    app: postgres
+    role: replica
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432
