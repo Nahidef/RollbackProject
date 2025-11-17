@@ -31,7 +31,7 @@ jobs:
         go-version: '1.23' 
 
     - name: k6 Kurulumu ve Testi Başlatma
-      uses: k6io/action@v4
+      uses: k6io/action@v0.4.0
       with:
         k6-version: latest
     
