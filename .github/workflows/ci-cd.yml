@@ -1,0 +1,57 @@
+name: 🚀 Rollback Projesi CI/CD
+
+on:
+  push:
+    branches: [ master, main ] # master veya main'e push edildiğinde çalış
+  workflow_dispatch: # GitHub arayüzünden manuel çalıştırma izni verir
+
+env:
+  DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/rollbackproject-api # GHCR hedef adresi
+  
+jobs:
+  build-test-push:
+    runs-on: ubuntu-latest # Bulut sunucusunda çalışacak
+    
+    steps:
+    - name: Kodu Çek
+      uses: actions/checkout@v4
+
+    # --- 1. Test Ortamını Başlatma (Master/Replica DB) ---
+    - name: Docker Compose ile Servisleri Başlat
+      # Docker Compose'u bulutta çalıştırır ve API'nin veritabanlarına bağlanmasını sağlar
+      run: docker compose -f docker-compose.yml up -d
+
+    - name: Servislerin Başlamasını Bekle
+      run: sleep 45 # Master ve Replica'nın senkronize olması için bekleme süresi
+
+    # --- 2. k6 Yük Testi (Rollback Kriteri) ---
+    - name: Go Kurulumu
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23' 
+
+    - name: k6 Kurulumu ve Testi Başlatma
+      uses: k6io/action@v0.2
+      with:
+        k6-version: latest
+    
+    # ⭐️ KRİTİK: Bu test BAŞARISIZ olursa (örneğin hata oranı > %1 olursa), pipeline durur.
+    - name: k6 Yük Testini Çalıştır
+      run: k6 run test/load-test.js
+
+    # --- 3. Docker İmajını Pushlama (Yükleme) ---
+    - name: GitHub Container Registry'ye (GHCR) Giriş
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }} # GitHub'ın otomatik sağladığı gizli token kullanılır
+
+    - name: Docker İmajını Build Et ve GHCR'ye Pushla
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ env.DOCKER_IMAGE }}:${{ github.sha }} # Commit ID'si ile etiketle (Benzersiz Versiyon)
+          ${{ env.DOCKER_IMAGE }}:latest # En son versiyon olarak etiketle
