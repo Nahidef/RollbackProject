@@ -2,50 +2,45 @@ name: 🚀 Rollback Projesi CI/CD
 
 on:
   push:
-    branches: [ master, main ] # master veya main'e push edildiğinde çalış
-  workflow_dispatch: # GitHub arayüzünden manuel çalıştırma izni verir
+    branches: [ master, main ]
+  workflow_dispatch:
 
 env:
-  DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/rollbackproject-api # GHCR hedef adresi
+  DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/rollbackproject-api
   
 jobs:
   build-test-push:
-    runs-on: ubuntu-latest # Bulut sunucusunda çalışacak
+    runs-on: ubuntu-latest
     
     steps:
     - name: Kodu Çek
       uses: actions/checkout@v4
 
-    # --- 1. Test Ortamını Başlatma (Master/Replica DB) ---
+    # --- 1. Test Ortamını Başlatma ---
     - name: Docker Compose ile Servisleri Başlat
-      # Docker Compose'u bulutta çalıştırır ve API'nin veritabanlarına bağlanmasını sağlar
       run: docker compose -f docker-compose.yml up -d
 
     - name: Servislerin Başlamasını Bekle
-      run: sleep 45 # Master ve Replica'nın senkronize olması için bekleme süresi
+      run: sleep 45
 
-    # --- 2. k6 Yük Testi (Rollback Kriteri) ---
-    - name: Go Kurulumu
-      uses: actions/setup-go@v5
+    # --- 2. k6 TESTLERİ ---
+    - name: k6 Kurulumu
+      uses: grafana/setup-k6-action@v1
       with:
-        go-version: '1.23' 
+        version: v0.51.0
 
-    - name: k6 Kurulumu ve Testi Başlatma
-      uses: grafana/k6-action@v0.3.1
-      with:
-        k6-version: latest
-    
-    # ⭐️ KRİTİK: Bu test BAŞARISIZ olursa (örneğin hata oranı > %1 olursa), pipeline durur.
     - name: k6 Yük Testini Çalıştır
-      run: k6 run test/load-test.js
+      uses: grafana/run-k6-action@v1
+      with:
+        path: test/load-test.js
 
-    # --- 3. Docker İmajını Pushlama (Yükleme) ---
-    - name: GitHub Container Registry'ye (GHCR) Giriş
+    # --- 3. Docker Push ---
+    - name: GitHub Container Registry'ye Giriş
       uses: docker/login-action@v3
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }} # GitHub'ın otomatik sağladığı gizli token kullanılır
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Docker İmajını Build Et ve GHCR'ye Pushla
       uses: docker/build-push-action@v5
@@ -53,5 +48,5 @@ jobs:
         context: .
         push: true
         tags: |
-          ${{ env.DOCKER_IMAGE }}:${{ github.sha }} # Commit ID'si ile etiketle (Benzersiz Versiyon)
-          ${{ env.DOCKER_IMAGE }}:latest # En son versiyon olarak etiketle
+          ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+          ${{ env.DOCKER_IMAGE }}:latest
