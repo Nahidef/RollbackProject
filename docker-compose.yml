@@ -1,0 +1,72 @@
+services:
+  # 1. YAZMA (MASTER) VERİTABANI SERVİSİ
+  db-master:
+    image: postgres:15-alpine
+    container_name: postgres_master
+    restart: always
+    environment:
+      POSTGRES_USER: user_master
+      POSTGRES_PASSWORD: master_password
+      POSTGRES_DB: api_db
+    ports:
+      - "5432:5432"
+    volumes:
+      # pg_hba.conf dosyasını container'a mount ediyoruz
+      - ./pg_hba.conf:/var/lib/postgresql/pg_hba.conf
+    command: |
+      postgres 
+      -c wal_level=replica 
+      -c max_wal_senders=10 
+      -c max_replication_slots=10
+      -c hba_file=/var/lib/postgresql/pg_hba.conf
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "user_master", "-d", "api_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. OKUMA (REPLICA) VERİTABANI SERVİSİ
+  db-replica:
+    image: postgres:15-alpine
+    container_name: postgres_replica
+    restart: always
+    ports:
+      - "5433:5432"
+    depends_on:
+      db-master:
+        condition: service_healthy
+    environment:
+      PGDATA: /var/lib/postgresql/replica_data
+    command: |
+      bash -c "
+        sleep 10
+        rm -rf /var/lib/postgresql/replica_data
+        mkdir -p /var/lib/postgresql/replica_data
+        chmod 700 /var/lib/postgresql/replica_data
+        chown -R postgres:postgres /var/lib/postgresql/replica_data
+        su-exec postgres bash -c '
+          PGPASSWORD=master_password pg_basebackup -h db-master -D /var/lib/postgresql/replica_data -U user_master -v -P -R -X stream
+          touch /var/lib/postgresql/replica_data/standby.signal
+          postgres -D /var/lib/postgresql/replica_data
+        '
+      "
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "user_master", "-d", "api_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 3. GO API SERVİSİ
+  api:
+    build: .
+    container_name: go_api
+    ports:
+      - "8080:8080"
+    depends_on:
+      db-master:
+        condition: service_healthy
+      db-replica:
+        condition: service_healthy
+    environment:
+      PG_URL_WRITE: "postgresql://user_master:master_password@db-master:5432/api_db?sslmode=disable"
+      PG_URL_READ: "postgresql://user_master:master_password@db-replica:5432/api_db?sslmode=disable"
